@@ -7,4 +7,4 @@ macro_rules! hot_const {
     };
 }
 
-pub fn watch_constants() {}
+pub fn watch_constants(on_changed: impl Fn() + Sync + Send + 'static ) {}

@@ -1,7 +1,7 @@
 use std::{thread, time::Duration};
 
 pub fn main() {
-    watch_constants();
+    watch_constants(|| println!("Change detected"));
 
     let mut index = 0;
     loop {

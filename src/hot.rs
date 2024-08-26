@@ -7,7 +7,6 @@ use std::{
 
 use notify::Watcher;
 
-
 #[macro_export]
 macro_rules! hot_const {
     ($id: ident, $ty: ty, $value: literal) => {
@@ -22,11 +21,7 @@ macro_rules! hot_const {
                     setter: &|s| match <$ty as ::core::str::FromStr>::from_str(s.as_str()) {
                         Ok(new_value) => {
                             let current_value = *INNER.read().unwrap();
-                            println!(
-                                "Setting current value ({current_value}) to new value: {new_value}"
-                            );
                             if current_value == new_value {
-                                println!("Value was not changed");
                                 return Ok(false);
                             }
 
@@ -51,7 +46,7 @@ pub static HOT_CONSTANTS: [MutableConstInstance];
 const FILE_PATH: &'static str = "hot_constants.tsv";
 
 #[cfg(feature = "hot")]
-pub fn watch_constants() {
+pub fn watch_constants(on_changed: impl Fn() + Sync + Send + 'static ) {
     let constants: BTreeMap<&'static str, MutableConstInstance> =
         HOT_CONSTANTS.iter().map(|x| (x.name, x.clone())).collect();
 
@@ -65,7 +60,7 @@ pub fn watch_constants() {
     let mut file_text = String::new();
     file.read_to_string(&mut file_text)
         .expect("Could not read hot_constants.tsv");
-    let unset_constants = update_constants_from_file_text(&file_text, &constants);
+    let unset_constants = update_constants_from_file_text1(&file_text, &constants);
     if !unset_constants.is_empty() {
         update_file_contents(&mut file, unset_constants, &constants)
     }
@@ -84,7 +79,11 @@ pub fn watch_constants() {
                 ) {
                     match std::fs::read_to_string(FILE_PATH) {
                         Ok(text) => {
-                            update_constants_from_file_text(text.as_str(), &constants);
+                            let changed = update_constants_from_file_text2(text.as_str(), &constants);
+                            if changed{
+                                on_changed();
+                            }
+
                         }
                         Err(err) => {
                             println!("file read error: {:?}", err)
@@ -119,7 +118,7 @@ fn update_file_contents(
     }
 }
 
-fn update_constants_from_file_text(
+fn update_constants_from_file_text1(
     text: &str,
     constants: &BTreeMap<&'static str, MutableConstInstance>,
 ) -> BTreeSet<&'static str> {
@@ -152,8 +151,39 @@ fn update_constants_from_file_text(
             }
         }
     }
-
     unset_constants
+}
+fn update_constants_from_file_text2(
+    text: &str,
+    constants: &BTreeMap<&'static str, MutableConstInstance>,
+) -> bool {
+    let mut has_changed = false;
+
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        };
+        let Some((key, value)) = line.split_once('\t') else {
+            println!("Could not parse hot constant line `{line}`");
+            continue;
+        };
+
+        if let Some(instance) = constants.get(key) {
+            match (*instance.setter)(value.to_string()) {
+                Ok(changed) => {
+                    if changed {
+                        println!("Set `{key}` to value `{value}`");
+                        has_changed = true;
+                    }
+                }
+                Err(err) => {
+                    println!("Could not set `{key}` to value `{value}`: {err}")
+                }
+            }
+        }
+    }
+    has_changed
 }
 
 #[derive(Clone)]
@@ -162,4 +192,3 @@ pub struct MutableConstInstance {
     pub read_value: &'static (dyn Fn() -> String + Send + Sync + 'static),
     pub setter: &'static (dyn Fn(String) -> Result<bool, String> + Send + Sync + 'static),
 }
-
