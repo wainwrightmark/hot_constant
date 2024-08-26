@@ -5,10 +5,47 @@ use std::{
     path::Path,
 };
 
-use linkme::distributed_slice;
 use notify::Watcher;
 
-#[distributed_slice]
+
+#[macro_export]
+macro_rules! hot_const {
+    ($id: ident, $ty: ty, $value: literal) => {
+        pub fn $id() -> $ty {
+            static INNER: ::std::sync::RwLock<$ty> = ::std::sync::RwLock::new($value);
+
+            #[$crate::hot_distributed_slice($crate::hot::HOT_CONSTANTS)]
+            static MY_VALUE_INSTANCE: $crate::hot::MutableConstInstance =
+                $crate::hot::MutableConstInstance {
+                    name: stringify!($id),
+                    read_value: &|| INNER.read().unwrap().to_string(),
+                    setter: &|s| match <$ty as ::core::str::FromStr>::from_str(s.as_str()) {
+                        Ok(new_value) => {
+                            let current_value = *INNER.read().unwrap();
+                            println!(
+                                "Setting current value ({current_value}) to new value: {new_value}"
+                            );
+                            if current_value == new_value {
+                                println!("Value was not changed");
+                                return Ok(false);
+                            }
+
+                            let mut w = INNER.write().unwrap();
+
+                            *w = new_value;
+
+                            Ok(true)
+                        }
+                        Err(err) => Err(err.to_string()),
+                    },
+                };
+
+            *INNER.read().unwrap()
+        }
+    };
+}
+
+#[linkme::distributed_slice]
 pub static HOT_CONSTANTS: [MutableConstInstance];
 
 const FILE_PATH: &'static str = "hot_constants.tsv";
@@ -126,39 +163,3 @@ pub struct MutableConstInstance {
     pub setter: &'static (dyn Fn(String) -> Result<bool, String> + Send + Sync + 'static),
 }
 
-#[macro_export]
-macro_rules! hot_const {
-    ($id: ident, $ty: ty, $value: literal) => {
-        pub fn $id() -> $ty {
-            static INNER: std::sync::RwLock<$ty> = std::sync::RwLock::new($value);
-
-            #[linkme::distributed_slice(crate::hot::HOT_CONSTANTS)]
-            static MY_VALUE_INSTANCE: crate::hot::MutableConstInstance =
-                crate::hot::MutableConstInstance {
-                    name: stringify!($id),
-                    read_value: &|| INNER.read().unwrap().to_string(),
-                    setter: &|s| match <$ty as core::str::FromStr>::from_str(s.as_str()) {
-                        Ok(new_value) => {
-                            let current_value = *INNER.read().unwrap();
-                            println!(
-                                "Setting current value ({current_value}) to new value: {new_value}"
-                            );
-                            if current_value == new_value {
-                                println!("Value was not changed");
-                                return Ok(false);
-                            }
-
-                            let mut w = INNER.write().unwrap();
-
-                            *w = new_value;
-
-                            Ok(true)
-                        }
-                        Err(err) => Err(err.to_string()),
-                    },
-                };
-
-            *INNER.read().unwrap()
-        }
-    };
-}
