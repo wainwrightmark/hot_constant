@@ -9,7 +9,7 @@ use notify::Watcher;
 
 #[macro_export]
 macro_rules! hot_const {
-    ($id: ident, $ty: ty, $value: literal) => {
+    ($id: ident, $ty: ty, $value: expr) => {
         pub fn $id() -> $ty {
             static INNER: ::std::sync::RwLock<$ty> = ::std::sync::RwLock::new($value);
 
@@ -19,6 +19,36 @@ macro_rules! hot_const {
                     name: stringify!($id),
                     read_value: &|| INNER.read().unwrap().to_string(),
                     setter: &|s| match <$ty as ::core::str::FromStr>::from_str(s.as_str()) {
+                        Ok(new_value) => {
+                            let current_value = *INNER.read().unwrap();
+                            if current_value == new_value {
+                                return Ok(false);
+                            }
+
+                            let mut w = INNER.write().unwrap();
+
+                            *w = new_value;
+
+                            Ok(true)
+                        }
+                        Err(err) => Err(err.to_string()),
+                    },
+                };
+
+            *INNER.read().unwrap()
+        }
+    };
+
+    ($id: ident, $ty: ty, $value: expr, $to_str:expr, $from_str:expr) => {
+        pub fn $id() -> $ty {
+            static INNER: ::std::sync::RwLock<$ty> = ::std::sync::RwLock::new($value);
+
+            #[$crate::hot_distributed_slice($crate::hot::HOT_CONSTANTS)]
+            static MY_VALUE_INSTANCE: $crate::hot::MutableConstInstance =
+                $crate::hot::MutableConstInstance {
+                    name: stringify!($id),
+                    read_value: &|| $to_str(&INNER.read().unwrap()),
+                    setter: &|s| match $from_str(s.as_str()) {
                         Ok(new_value) => {
                             let current_value = *INNER.read().unwrap();
                             if current_value == new_value {
