@@ -17,7 +17,7 @@ macro_rules! hot_const_str {
             static MY_VALUE_INSTANCE: $crate::hot::MutableConstInstance =
                 $crate::hot::MutableConstInstance {
                     name: stringify!($id),
-                    read_value: &|| INNER.read().unwrap().to_string(),
+                    read_value: &|| $crate::hot::unescape_and_quote(&INNER.read().unwrap()),
                     setter: &|s| $crate::hot::try_set_string(s, &INNER),
                 };
 
@@ -31,15 +31,47 @@ pub fn try_set_string(
     rw_lock: &std::sync::RwLock<&'static str>,
 ) -> Result<bool, String> {
     let current_value = *rw_lock.read().unwrap();
-    if current_value == s.as_str() {
+
+    let s = s
+        .strip_prefix("\"")
+        .ok_or_else(|| "String does not begin with `\"`")?;
+    let s = s
+        .strip_suffix("\"")
+        .ok_or_else(|| "String does not end with `\"`")?;
+
+    let escaped = escape(&s);
+
+    if current_value == escaped.as_str() {
         return Ok(false);
     }
 
     let mut w = rw_lock.write().unwrap();
 
-    *w = String::leak(s);
+    *w = String::leak(escaped);
 
     Ok(true)
+}
+
+pub fn unescape_and_quote(s: &str) -> String {
+    let mut s = s.to_string();
+    s = s
+        .replace("\t", "\\t")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\\", "\\");
+
+    format!("\"{s}\"")
+}
+
+pub fn escape(s: &str) -> String {
+    let mut s = s.to_string();
+    s = s
+        .replace(r#"\t"#, "\t")
+        .replace(r#"\n"#, "\n")
+        .replace(r#"\r"#, "\r")
+        .replace(r#"\"#, "\\");
+
+    s
 }
 
 #[macro_export]
