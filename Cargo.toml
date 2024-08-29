@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 linkme = {version ="0.3", optional = true}
 notify = {version ="6", optional = true}
+escape_string = {version = "0.1", optional = true}
 
 [dev-dependencies]
 bevy_color = {version = "0.14"}
@@ -17,6 +18,11 @@ path = "examples/basic.rs"
 [[example]]
 name = "custom"
 path = "examples/custom.rs"
+
+
+[[example]]
+name = "string"
+path = "examples/string.rs"
 
 
 [features]

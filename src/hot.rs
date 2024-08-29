@@ -8,6 +8,41 @@ use std::{
 use notify::Watcher;
 
 #[macro_export]
+macro_rules! hot_const_str {
+    ($id: ident, $value: literal) => {
+        pub fn $id() -> &'static str {
+            static INNER: ::std::sync::RwLock<&'static str> = ::std::sync::RwLock::new($value);
+
+            #[$crate::hot_distributed_slice($crate::hot::HOT_CONSTANTS)]
+            static MY_VALUE_INSTANCE: $crate::hot::MutableConstInstance =
+                $crate::hot::MutableConstInstance {
+                    name: stringify!($id),
+                    read_value: &|| INNER.read().unwrap().to_string(),
+                    setter: &|s| $crate::hot::try_set_string(s, &INNER),
+                };
+
+            *INNER.read().unwrap()
+        }
+    };
+}
+
+pub fn try_set_string(
+    s: String,
+    rw_lock: &std::sync::RwLock<&'static str>,
+) -> Result<bool, String> {
+    let current_value = *rw_lock.read().unwrap();
+    if current_value == s.as_str() {
+        return Ok(false);
+    }
+
+    let mut w = rw_lock.write().unwrap();
+
+    *w = String::leak(s);
+
+    Ok(true)
+}
+
+#[macro_export]
 macro_rules! hot_const {
     ($id: ident, $ty: ty, $value: expr) => {
         pub fn $id() -> $ty {
@@ -76,7 +111,7 @@ pub static HOT_CONSTANTS: [MutableConstInstance];
 const FILE_PATH: &'static str = "hot_constants.tsv";
 
 #[cfg(feature = "hot")]
-pub fn watch_constants(on_changed: impl Fn() + Sync + Send + 'static ) {
+pub fn watch_constants(on_changed: impl Fn() + Sync + Send + 'static) {
     let constants: BTreeMap<&'static str, MutableConstInstance> =
         HOT_CONSTANTS.iter().map(|x| (x.name, x.clone())).collect();
 
@@ -109,11 +144,11 @@ pub fn watch_constants(on_changed: impl Fn() + Sync + Send + 'static ) {
                 ) {
                     match std::fs::read_to_string(FILE_PATH) {
                         Ok(text) => {
-                            let changed = update_constants_from_file_text2(text.as_str(), &constants);
-                            if changed{
+                            let changed =
+                                update_constants_from_file_text2(text.as_str(), &constants);
+                            if changed {
                                 on_changed();
                             }
-
                         }
                         Err(err) => {
                             println!("file read error: {:?}", err)
